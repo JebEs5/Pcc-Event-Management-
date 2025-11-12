@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PCC Events - Admin</title>
+<style>
+:root{--bg:#eef4ff;--primary:#2f7ff6;--muted:#6b7b98;}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:#0b2545}
+header{background:var(--primary);color:white;padding:12px 16px;font-weight:800}
+.tabs{display:flex;gap:8px;padding:12px;justify-content:center;background:#e6f3ff}
+.tab{padding:8px 12px;border-radius:8px;cursor:pointer;background:white;font-weight:700}
+.tab.active{background:var(--primary);color:white}
+.container{max-width:980px;margin:12px auto;padding:12px}
+.card{background:white;padding:12px;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.06)}
+.item{padding:12px;border-radius:8px;margin-bottom:10px;border-left:6px solid var(--primary);background:#fbfdff}
+.actions{display:flex;gap:8px;align-items:center}
+.btn{background:var(--primary);color:white;border:none;padding:8px 10px;border-radius:8px;cursor:pointer;font-weight:700}
+.btn.reject{background:#fff6f6;color:#dc2626;border:1px solid #ffdcdc}
+.small{color:var(--muted);font-size:13px}
+.empty{padding:12px;border-radius:8px;background:#fbfdff;border:1px dashed #e8f2ff;color:var(--muted)}
+.search-admin{padding:8px 10px;border-radius:8px;border:1px solid #dbeafe;width:320px;max-width:50vw;margin-left:auto}
+</style>
+</head>
+<body>
+<header>PCC EVENTS - ADMIN</header>
+<div style="display:flex;align-items:center;gap:12px;padding:10px;background:#e6f3ff">
+  <div style="display:flex;gap:8px;align-items:center;margin:auto">
+    <div class="tabs">
+      <div id="tabPending" class="tab active" onclick="switchTab('pending')">Pending</div>
+      <div id="tabApproved" class="tab" onclick="switchTab('approved')">Approved</div>
+      <div id="tabRejected" class="tab" onclick="switchTab('rejected')">Rejected</div>
+    </div>
+  </div>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:8px;padding-right:16px">
+    <input id="adminSearch" class="search-admin" placeholder="Search title or venue">
+    <button class="btn" onclick="performAdminSearch()">Search</button>
+  </div>
+</div>
+
+<div class="container">
+  <div id="content" class="card"></div>
+</div>
+
+<script>
+const EVENTS_KEY = 'pcc_events_data_final';
+const NOTIFS_KEY = 'pcc_notifs_final';
+
+let events = JSON.parse(localStorage.getItem(EVENTS_KEY) || '[]');
+let notifs = JSON.parse(localStorage.getItem(NOTIFS_KEY) || '[]');
+let current = 'pending';
+let adminSearchTerm = '';
+
+function save(){ localStorage.setItem(EVENTS_KEY, JSON.stringify(events)); }
+function saveNotifs(){ localStorage.setItem(NOTIFS_KEY, JSON.stringify(notifs)); }
+
+function render(){
+  const content = document.getElementById('content');
+  let list = events.filter(e=> e.status === current).sort((a,b)=> b.createdAt - a.createdAt);
+  if(adminSearchTerm){ const q = adminSearchTerm.toLowerCase(); list = list.filter(e=> e.title.toLowerCase().includes(q) || e.venue.toLowerCase().includes(q)); }
+  if(!list.length){ content.innerHTML = '<div class="empty">No ' + current + ' events</div>'; return; }
+  content.innerHTML = list.map(e=>`
+    <div class="item">
+      <div style="display:flex;justify-content:space-between;gap:12px">
+        <div>
+          <div style="font-weight:800">${escapeHtml(e.title)}</div>
+          <div class="small">${escapeHtml(e.date)} • ${escapeHtml(e.start)} - ${escapeHtml(e.end)} • ${escapeHtml(e.venue)}</div>
+          <div style="margin-top:8px" class="small">Organizer: ${escapeHtml(e.organizer)} • ${escapeHtml(e.contact)}</div>
+          <div style="margin-top:8px" class="small">${escapeHtml(e.desc || '')}</div>
+        </div>
+        <div class="actions">
+          ${current === 'pending' ? `<button class="btn" onclick="approve(${e.id})">Approve</button><button class="btn reject" onclick="reject(${e.id})">Reject</button>` : `<div class="small">${current.charAt(0).toUpperCase()+current.slice(1)}</div>`}
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function approve(id){
+  const idx = events.findIndex(x=> x.id === id);
+  if(idx === -1) return;
+  events[idx].status = 'approved'; save();
+  notifs.push({title:`Your event '${events[idx].title}' was approved ✅`, time: new Date().toLocaleString(), read:false}); saveNotifs();
+  localStorage.setItem('pcc_admin_ping', Date.now().toString());
+  adminSearchTerm = ''; document.getElementById('adminSearch').value = '';
+  switchTab('approved');
+}
+
+function reject(id){
+  const idx = events.findIndex(x=> x.id === id);
+  if(idx === -1) return;
+  events[idx].status = 'rejected'; save();
+  notifs.push({title:`Your event '${events[idx].title}' was rejected ❌`, time: new Date().toLocaleString(), read:false}); saveNotifs();
+  localStorage.setItem('pcc_admin_ping', Date.now().toString());
+  adminSearchTerm = ''; document.getElementById('adminSearch').value = '';
+  switchTab('rejected');
+}
+
+function switchTab(tab){
+  current = tab;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab'+tab.charAt(0).toUpperCase()+tab.slice(1)).classList.add('active');
+  render();
+}
+
+function performAdminSearch(){
+  adminSearchTerm = document.getElementById('adminSearch').value.trim();
+  render();
+}
+
+window.addEventListener('storage',(e)=>{
+  if(e.key === EVENTS_KEY || e.key === NOTIFS_KEY || e.key === 'pcc_admin_ping'){
+    events = JSON.parse(localStorage.getItem(EVENTS_KEY) || '[]');
+    notifs = JSON.parse(localStorage.getItem(NOTIFS_KEY) || '[]');
+    render();
+  }
+});
+
+function escapeHtml(s){ if(!s && s !== 0) return ''; return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+render();
+</script>
+</body>
+</html>
